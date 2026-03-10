@@ -2,25 +2,27 @@ import {
   getNotionEvents,
   createNotionEvent,
   updateNotionEvent,
+  deleteNotionEvent,
   NotionEvent,
 } from "./notion";
 import {
   getGoogleEvents,
   createGoogleEvent,
   updateGoogleEvent,
+  deleteGoogleEvent,
   GoogleEvent,
 } from "./google";
 
 interface SyncResult {
-  notionToGoogle: { created: number; updated: number };
-  googleToNotion: { created: number; updated: number };
+  notionToGoogle: { created: number; updated: number; deleted: number };
+  googleToNotion: { created: number; updated: number; deleted: number };
   errors: string[];
 }
 
 export async function runSync(): Promise<SyncResult> {
   const result: SyncResult = {
-    notionToGoogle: { created: 0, updated: 0 },
-    googleToNotion: { created: 0, updated: 0 },
+    notionToGoogle: { created: 0, updated: 0, deleted: 0 },
+    googleToNotion: { created: 0, updated: 0, deleted: 0 },
     errors: [],
   };
 
@@ -88,13 +90,38 @@ export async function runSync(): Promise<SyncResult> {
           });
           result.googleToNotion.updated++;
         }
-      } else {
-        // Not in Notion yet — create it
+      } else if (!ge.notionManaged) {
+        // Not in Notion yet and not created from Notion — create it
         await createNotionEvent(ge.summary, ge.start, ge.end, ge.id);
         result.googleToNotion.created++;
       }
     } catch (err: any) {
       result.errors.push(`Google→Notion (${ge.summary}): ${err.message}`);
+    }
+  }
+
+  // --- Deletions: Google event deleted → archive Notion event ---
+  for (const ne of notionEvents) {
+    if (ne.googleEventId && !googleById.has(ne.googleEventId)) {
+      try {
+        await deleteNotionEvent(ne.pageId);
+        result.googleToNotion.deleted++;
+      } catch (err: any) {
+        result.errors.push(`Delete Notion (${ne.title}): ${err.message}`);
+      }
+    }
+  }
+
+  // --- Deletions: Notion event deleted → delete Google event ---
+  // Only delete Google events that were originally created from Notion
+  for (const ge of googleEvents) {
+    if (ge.notionManaged && !notionByGoogleId.has(ge.id)) {
+      try {
+        await deleteGoogleEvent(ge.id);
+        result.notionToGoogle.deleted++;
+      } catch (err: any) {
+        result.errors.push(`Delete Google (${ge.summary}): ${err.message}`);
+      }
     }
   }
 

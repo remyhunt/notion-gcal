@@ -21,6 +21,7 @@ export interface GoogleEvent {
   start: string;
   end: string | null;
   updated: string;
+  notionManaged: boolean;
 }
 
 function parseEventTime(
@@ -56,6 +57,7 @@ export async function getGoogleEvents(): Promise<GoogleEvent[]> {
       start: parseEventTime(e.start)!,
       end: parseEventTime(e.end),
       updated: e.updated!,
+      notionManaged: e.extendedProperties?.private?.notionManaged === "true",
     }));
 }
 
@@ -73,6 +75,9 @@ export async function createGoogleEvent(
     end: isAllDay
       ? { date: end || start }
       : { dateTime: end || start },
+    extendedProperties: {
+      private: { notionManaged: "true" },
+    },
   };
 
   const response = await calendar.events.insert({
