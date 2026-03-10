@@ -1,10 +1,4 @@
-import {
-  getNotionEvents,
-  createNotionEvent,
-  updateNotionEvent,
-  deleteNotionEvent,
-  NotionEvent,
-} from "./notion";
+import { getNotionEvents, NotionEvent } from "./notion";
 import {
   getGoogleEvents,
   createGoogleEvent,
@@ -15,14 +9,12 @@ import {
 
 interface SyncResult {
   notionToGoogle: { created: number; updated: number; deleted: number };
-  googleToNotion: { created: number; updated: number; deleted: number };
   errors: string[];
 }
 
 export async function runSync(): Promise<SyncResult> {
   const result: SyncResult = {
     notionToGoogle: { created: 0, updated: 0, deleted: 0 },
-    googleToNotion: { created: 0, updated: 0, deleted: 0 },
     errors: [],
   };
 
@@ -31,41 +23,32 @@ export async function runSync(): Promise<SyncResult> {
     getGoogleEvents(),
   ]);
 
-  // Index Google events by ID for quick lookup
-  const googleById = new Map<string, GoogleEvent>();
+  // Index Google events by title (only notionManaged ones for matching)
+  const googleByTitle = new Map<string, GoogleEvent>();
   for (const ge of googleEvents) {
-    googleById.set(ge.id, ge);
-  }
-
-  // Index Notion events by Google Event ID
-  const notionByGoogleId = new Map<string, NotionEvent>();
-  for (const ne of notionEvents) {
-    if (ne.googleEventId) {
-      notionByGoogleId.set(ne.googleEventId, ne);
+    if (ge.notionManaged) {
+      googleByTitle.set(ge.summary, ge);
     }
   }
 
-  // --- Notion → Google ---
+  // Track which managed Google events are still in Notion
+  const matchedGoogleTitles = new Set<string>();
+
+  // --- Notion → Google: create & update ---
   for (const ne of notionEvents) {
     try {
-      if (ne.googleEventId) {
-        // Already linked — update Google event
-        const ge = googleById.get(ne.googleEventId);
-        if (ge) {
-          // Only update if Notion was edited more recently
-          if (ne.lastSynced && new Date(ge.updated) <= new Date(ne.lastSynced)) {
-            // Check if Notion data differs from Google
-            if (ge.summary !== ne.title || ge.start !== ne.start || ge.end !== ne.end) {
-              await updateGoogleEvent(ne.googleEventId, ne.title, ne.start, ne.end);
-              await updateNotionEvent(ne.pageId, {});
-              result.notionToGoogle.updated++;
-            }
-          }
+      const ge = googleByTitle.get(ne.title);
+      if (ge) {
+        matchedGoogleTitles.add(ne.title);
+        // Update Google if date differs
+        if (ge.start !== ne.start || ge.end !== ne.end) {
+          await updateGoogleEvent(ge.id, ne.title, ne.start, ne.end);
+          result.notionToGoogle.updated++;
         }
       } else {
-        // No Google Event ID — create in Google
-        const googleEventId = await createGoogleEvent(ne.title, ne.start, ne.end);
-        await updateNotionEvent(ne.pageId, { googleEventId });
+        // No matching Google event — create it
+        await createGoogleEvent(ne.title, ne.start, ne.end);
+        matchedGoogleTitles.add(ne.title);
         result.notionToGoogle.created++;
       }
     } catch (err: any) {
@@ -73,49 +56,9 @@ export async function runSync(): Promise<SyncResult> {
     }
   }
 
-  // --- Google → Notion ---
+  // --- Deletions: remove managed Google events no longer in Notion ---
   for (const ge of googleEvents) {
-    try {
-      const existingNotion = notionByGoogleId.get(ge.id);
-      if (existingNotion) {
-        // Already linked — update Notion if Google is newer
-        if (
-          existingNotion.lastSynced &&
-          new Date(ge.updated) > new Date(existingNotion.lastSynced)
-        ) {
-          await updateNotionEvent(existingNotion.pageId, {
-            title: ge.summary,
-            start: ge.start,
-            end: ge.end,
-          });
-          result.googleToNotion.updated++;
-        }
-      } else if (!ge.notionManaged) {
-        // Not in Notion yet and not created from Notion — create it
-        await createNotionEvent(ge.summary, ge.start, ge.end, ge.id);
-        result.googleToNotion.created++;
-      }
-    } catch (err: any) {
-      result.errors.push(`Google→Notion (${ge.summary}): ${err.message}`);
-    }
-  }
-
-  // --- Deletions: Google event deleted → archive Notion event ---
-  for (const ne of notionEvents) {
-    if (ne.googleEventId && !googleById.has(ne.googleEventId)) {
-      try {
-        await deleteNotionEvent(ne.pageId);
-        result.googleToNotion.deleted++;
-      } catch (err: any) {
-        result.errors.push(`Delete Notion (${ne.title}): ${err.message}`);
-      }
-    }
-  }
-
-  // --- Deletions: Notion event deleted → delete Google event ---
-  // Only delete Google events that were originally created from Notion
-  for (const ge of googleEvents) {
-    if (ge.notionManaged && !notionByGoogleId.has(ge.id)) {
+    if (ge.notionManaged && !matchedGoogleTitles.has(ge.summary)) {
       try {
         await deleteGoogleEvent(ge.id);
         result.notionToGoogle.deleted++;

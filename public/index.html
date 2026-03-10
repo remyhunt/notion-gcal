@@ -80,8 +80,7 @@
         if (res.ok) {
           status.className = 'success';
           const n2g = data.notionToGoogle;
-          const g2n = data.googleToNotion;
-          status.innerHTML = `Synced! Notion→GCal: ${n2g.created} created, ${n2g.updated} updated, ${n2g.deleted} deleted. GCal→Notion: ${g2n.created} created, ${g2n.updated} updated, ${g2n.deleted} deleted.`;
+          status.innerHTML = `Synced! ${n2g.created} created, ${n2g.updated} updated, ${n2g.deleted} deleted in Google Calendar.`;
           if (data.errors?.length) {
             status.innerHTML += `<pre>${data.errors.join('\n')}</pre>`;
           }
