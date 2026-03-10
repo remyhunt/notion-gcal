@@ -1,4 +1,4 @@
-import { getNotionEvents, NotionEvent } from "./notion";
+import { getNotionPhases, NotionPhase } from "./notion";
 import {
   getGoogleEvents,
   createGoogleEvent,
@@ -12,53 +12,57 @@ interface SyncResult {
   errors: string[];
 }
 
+// Build a unique key for matching: "ProjectName | PhaseName"
+function eventKey(projectName: string, phaseTitle: string): string {
+  return `${projectName} | ${phaseTitle}`;
+}
+
 export async function runSync(): Promise<SyncResult> {
   const result: SyncResult = {
     notionToGoogle: { created: 0, updated: 0, deleted: 0 },
     errors: [],
   };
 
-  const [notionEvents, googleEvents] = await Promise.all([
-    getNotionEvents(),
+  const [phases, googleEvents] = await Promise.all([
+    getNotionPhases(),
     getGoogleEvents(),
   ]);
 
-  // Index Google events by title (only notionManaged ones for matching)
-  const googleByTitle = new Map<string, GoogleEvent>();
+  // Index managed Google events by summary
+  const googleByKey = new Map<string, GoogleEvent>();
   for (const ge of googleEvents) {
     if (ge.notionManaged) {
-      googleByTitle.set(ge.summary, ge);
+      googleByKey.set(ge.summary, ge);
     }
   }
 
-  // Track which managed Google events are still in Notion
-  const matchedGoogleTitles = new Set<string>();
+  // Track which Google events are still in Notion
+  const matchedKeys = new Set<string>();
 
-  // --- Notion → Google: create & update ---
-  for (const ne of notionEvents) {
+  // --- Create & update ---
+  for (const phase of phases) {
+    const key = eventKey(phase.projectName, phase.title);
     try {
-      const ge = googleByTitle.get(ne.title);
+      const ge = googleByKey.get(key);
       if (ge) {
-        matchedGoogleTitles.add(ne.title);
-        // Update Google if date differs
-        if (ge.start !== ne.start || ge.end !== ne.end) {
-          await updateGoogleEvent(ge.id, ne.title, ne.start, ne.end);
+        matchedKeys.add(key);
+        if (ge.start !== phase.start || ge.end !== phase.end) {
+          await updateGoogleEvent(ge.id, key, phase.start, phase.end);
           result.notionToGoogle.updated++;
         }
       } else {
-        // No matching Google event — create it
-        await createGoogleEvent(ne.title, ne.start, ne.end);
-        matchedGoogleTitles.add(ne.title);
+        await createGoogleEvent(key, phase.start, phase.end);
+        matchedKeys.add(key);
         result.notionToGoogle.created++;
       }
     } catch (err: any) {
-      result.errors.push(`Notion→Google (${ne.title}): ${err.message}`);
+      result.errors.push(`Notion→Google (${key}): ${err.message}`);
     }
   }
 
-  // --- Deletions: remove managed Google events no longer in Notion ---
+  // --- Delete managed Google events no longer in Notion ---
   for (const ge of googleEvents) {
-    if (ge.notionManaged && !matchedGoogleTitles.has(ge.summary)) {
+    if (ge.notionManaged && !matchedKeys.has(ge.summary)) {
       try {
         await deleteGoogleEvent(ge.id);
         result.notionToGoogle.deleted++;
