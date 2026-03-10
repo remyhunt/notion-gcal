@@ -13,8 +13,8 @@ export interface NotionEvent {
 }
 
 export async function getNotionEvents(): Promise<NotionEvent[]> {
-  const response = await notion.dataSources.query({
-    data_source_id: databaseId,
+  const response = await notion.databases.query({
+    database_id: databaseId,
   });
 
   return response.results.map((page: any) => {
