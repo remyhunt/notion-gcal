@@ -15,7 +15,7 @@ async function getDataSourceId(): Promise<string> {
   if (!dataSources || dataSources.length === 0) {
     throw new Error("No data sources found on database");
   }
-  return dataSources[0].data_source_id;
+  return dataSources[0].id;
 }
 
 export async function getNotionEvents(): Promise<NotionEvent[]> {
