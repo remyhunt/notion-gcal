@@ -18,6 +18,8 @@ const defaultCalendarId = () => process.env.GOOGLE_CALENDAR_ID!;
 export const CALENDAR_IDS: Record<string, string> = {
   default: process.env.GOOGLE_CALENDAR_ID!,
   Development: process.env.GOOGLE_CALENDAR_ID_DEVELOPMENT!,
+  Discovery: process.env.GOOGLE_CALENDAR_ID_DISCOVERY!,
+  Design: process.env.GOOGLE_CALENDAR_ID_DESIGN!,
 };
 
 export function calendarIdForPhaseType(phaseType: string | null): string {
