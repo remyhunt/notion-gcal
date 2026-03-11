@@ -13,18 +13,15 @@ function getCalendar() {
   return google.calendar({ version: "v3", auth });
 }
 
-const defaultCalendarId = () => process.env.GOOGLE_CALENDAR_ID!;
-
 export const CALENDAR_IDS: Record<string, string> = {
-  default: process.env.GOOGLE_CALENDAR_ID!,
   Development: process.env.GOOGLE_CALENDAR_ID_DEVELOPMENT!,
   Discovery: process.env.GOOGLE_CALENDAR_ID_DISCOVERY!,
   Design: process.env.GOOGLE_CALENDAR_ID_DESIGN!,
 };
 
-export function calendarIdForPhaseType(phaseType: string | null): string {
+export function calendarIdForPhaseType(phaseType: string | null): string | null {
   if (phaseType && CALENDAR_IDS[phaseType]) return CALENDAR_IDS[phaseType];
-  return CALENDAR_IDS.default;
+  return null;
 }
 
 export interface GoogleEvent {

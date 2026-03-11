@@ -44,6 +44,10 @@ export async function runSync(): Promise<SyncResult> {
   for (const phase of phases) {
     const key = eventKey(phase.projectName, phase.title);
     const targetCalId = calendarIdForPhaseType(phase.phaseType);
+
+    // Skip phases that don't map to a calendar
+    if (!targetCalId) continue;
+
     try {
       const ge = googleByKey.get(key);
       if (ge) {
