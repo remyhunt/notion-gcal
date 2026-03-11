@@ -13,10 +13,21 @@ function getCalendar() {
   return google.calendar({ version: "v3", auth });
 }
 
-const calendarId = () => process.env.GOOGLE_CALENDAR_ID!;
+const defaultCalendarId = () => process.env.GOOGLE_CALENDAR_ID!;
+
+export const CALENDAR_IDS: Record<string, string> = {
+  default: process.env.GOOGLE_CALENDAR_ID!,
+  Development: process.env.GOOGLE_CALENDAR_ID_DEVELOPMENT!,
+};
+
+export function calendarIdForPhaseType(phaseType: string | null): string {
+  if (phaseType && CALENDAR_IDS[phaseType]) return CALENDAR_IDS[phaseType];
+  return CALENDAR_IDS.default;
+}
 
 export interface GoogleEvent {
   id: string;
+  calendarId: string;
   summary: string;
   start: string;
   end: string | null;
@@ -31,17 +42,16 @@ function parseEventTime(
   return time.dateTime || time.date || null;
 }
 
-export async function getGoogleEvents(): Promise<GoogleEvent[]> {
+async function listEventsFromCalendar(calId: string): Promise<GoogleEvent[]> {
   const calendar = getCalendar();
 
-  // Get events from 30 days ago to 90 days ahead
   const timeMin = new Date();
   timeMin.setDate(timeMin.getDate() - 30);
   const timeMax = new Date();
   timeMax.setDate(timeMax.getDate() + 90);
 
   const response = await calendar.events.list({
-    calendarId: calendarId(),
+    calendarId: calId,
     timeMin: timeMin.toISOString(),
     timeMax: timeMax.toISOString(),
     singleEvents: true,
@@ -53,6 +63,7 @@ export async function getGoogleEvents(): Promise<GoogleEvent[]> {
     .filter((e) => e.status !== "cancelled")
     .map((e) => ({
       id: e.id!,
+      calendarId: calId,
       summary: e.summary || "Untitled",
       start: parseEventTime(e.start)!,
       end: parseEventTime(e.end),
@@ -61,10 +72,17 @@ export async function getGoogleEvents(): Promise<GoogleEvent[]> {
     }));
 }
 
+export async function getGoogleEvents(): Promise<GoogleEvent[]> {
+  const calendarIds = [...new Set(Object.values(CALENDAR_IDS).filter(Boolean))];
+  const results = await Promise.all(calendarIds.map(listEventsFromCalendar));
+  return results.flat();
+}
+
 export async function createGoogleEvent(
   title: string,
   start: string,
-  end: string | null
+  end: string | null,
+  calId?: string
 ): Promise<string> {
   const calendar = getCalendar();
 
@@ -81,7 +99,7 @@ export async function createGoogleEvent(
   };
 
   const response = await calendar.events.insert({
-    calendarId: calendarId(),
+    calendarId: calId || defaultCalendarId(),
     requestBody: eventBody,
   });
 
@@ -92,13 +110,14 @@ export async function updateGoogleEvent(
   eventId: string,
   title: string,
   start: string,
-  end: string | null
+  end: string | null,
+  calId?: string
 ): Promise<void> {
   const calendar = getCalendar();
   const isAllDay = start.length === 10;
 
   await calendar.events.update({
-    calendarId: calendarId(),
+    calendarId: calId || defaultCalendarId(),
     eventId,
     requestBody: {
       summary: title,
@@ -110,10 +129,10 @@ export async function updateGoogleEvent(
   });
 }
 
-export async function deleteGoogleEvent(eventId: string): Promise<void> {
+export async function deleteGoogleEvent(eventId: string, calId?: string): Promise<void> {
   const calendar = getCalendar();
   await calendar.events.delete({
-    calendarId: calendarId(),
+    calendarId: calId || defaultCalendarId(),
     eventId,
   });
 }

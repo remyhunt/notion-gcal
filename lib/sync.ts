@@ -4,6 +4,7 @@ import {
   createGoogleEvent,
   updateGoogleEvent,
   deleteGoogleEvent,
+  calendarIdForPhaseType,
   GoogleEvent,
 } from "./google";
 
@@ -42,16 +43,22 @@ export async function runSync(): Promise<SyncResult> {
   // --- Create & update ---
   for (const phase of phases) {
     const key = eventKey(phase.projectName, phase.title);
+    const targetCalId = calendarIdForPhaseType(phase.phaseType);
     try {
       const ge = googleByKey.get(key);
       if (ge) {
         matchedKeys.add(key);
-        if (ge.start !== phase.start || ge.end !== phase.end) {
-          await updateGoogleEvent(ge.id, key, phase.start, phase.end);
+        // If calendar changed (e.g. phase type updated), move it
+        if (ge.calendarId !== targetCalId) {
+          await deleteGoogleEvent(ge.id, ge.calendarId);
+          await createGoogleEvent(key, phase.start, phase.end, targetCalId);
+          result.notionToGoogle.updated++;
+        } else if (ge.start !== phase.start || ge.end !== phase.end) {
+          await updateGoogleEvent(ge.id, key, phase.start, phase.end, targetCalId);
           result.notionToGoogle.updated++;
         }
       } else {
-        await createGoogleEvent(key, phase.start, phase.end);
+        await createGoogleEvent(key, phase.start, phase.end, targetCalId);
         matchedKeys.add(key);
         result.notionToGoogle.created++;
       }
@@ -64,7 +71,7 @@ export async function runSync(): Promise<SyncResult> {
   for (const ge of googleEvents) {
     if (ge.notionManaged && !matchedKeys.has(ge.summary)) {
       try {
-        await deleteGoogleEvent(ge.id);
+        await deleteGoogleEvent(ge.id, ge.calendarId);
         result.notionToGoogle.deleted++;
       } catch (err: any) {
         result.errors.push(`Delete Google (${ge.summary}): ${err.message}`);
